@@ -1,170 +1,102 @@
+# **4. Clustering Analysis — Extended Structured Summary**
 
-# 4. Clustering Analysis — Summary of All Steps Performed
+## **4.1 Feature Engineering and Data Preparation**
 
-This section summarizes the entire clustering workflow, from feature engineering to model selection, validation, and behavioral interpretation.  
-The objective was to identify meaningful user segments based on engagement patterns, rating behavior, recency, and movie-preference signals.
+The first step was to transform raw interaction logs into a meaningful set of user-level behavioral indicators. To understand differences in user engagement and rating style, we aggregated interaction data per customer and constructed seven key features.
 
----
+These features were designed to capture **how much a user interacts**, **how long they stay active**, **how recently they were engaged**, **how they rate items**, and **the popularity of the content they interact with**. After converting these raw measures into standardized versions where necessary, the final feature set included:
 
-## 4.1 Feature Engineering for User-Level Clustering
+* **scaled_total_ratings** → a standardized measure of overall rating volume
+* **activity_days_new** → duration between a user's first and last rating
+* **days_since_last_interaction** → how long it has been since a user last engaged
+* **ratings_per_active_day** → frequency and intensity of rating behavior
+* **avg_rating_from_customer** → general positivity or negativity in rating style
+* **std_rating_from_customer** → rating consistency or variability
+* **avg_movie_popularity** → tendency toward mainstream vs. niche content
 
-User-level aggregated features were generated to capture essential behavioral dimensions:
+Missing values were handled using simple mean imputation for rating-based statistics and movie-popularity features, ensuring a clean, complete dataset for clustering.
 
-### **Engineered Features**
-- **scaled_total_ratings** — Standardized version of total_ratings.
-- **activity_days_new** — Duration (in days) between first and last recorded rating.
-- **days_since_last_interaction** — Recency relative to the most recent date in the dataset.
-- **ratings_per_active_day** — Rating intensity (total_ratings / activity_days_new).
-- **avg_rating_from_customer** — Mean rating value issued by the user.
-- **std_rating_from_customer** — Rating variance, measuring consistency.
-- **avg_movie_popularity** — Average movie popularity (after standardizing total_ratings_movie at the interaction level).
+This set of seven features served as the foundation for all subsequent modeling.
 
-### **Missing-Value Handling**
-Mean imputation was applied to:
-- avg_rating_from_customer  
-- std_rating_from_customer  
-- avg_movie_popularity  
+## **4.2 Standardization and Dimensionality Reduction**
 
-These seven features form the final clustering feature set:
+Because the engineered features operated on very different scales, the dataset was standardized using `StandardScaler`. This step ensured that models relying on distances or density estimation would not be biased by raw magnitudes.
 
-```
+To explore the structure of the data and assist visualization, PCA was applied.
 
-scaled_total_ratings
-activity_days_new
-days_since_last_interaction
-ratings_per_active_day
-avg_rating_from_customer
-std_rating_from_customer
-avg_movie_popularity
+* A **2-component PCA** captured ~47% of the total variance, enough to visualize broad patterns and potential cluster separations.
+* A **5-component PCA** captured ~69% of the variance, providing a more stable low-dimensional space that density-based methods like HDBSCAN could use effectively.
 
-```
+PCA therefore played both an exploratory and a practical role in improving clustering performance.
 
----
+## **4.3 KMeans Clustering (k = 2–10)**
 
-## 4.2 Data Standardization
+KMeans was used as a baseline model due to its simplicity and interpretability. We ran the algorithm for values of k ranging from 2 to 10, evaluating each configuration through inertia curves and silhouette scores.
 
-Since the feature scales differ substantially, the entire feature matrix was standardized using:
+While the inertia curve did not reveal a clear elbow point, the silhouette analysis provided more actionable insights. The strongest performers were:
 
-**StandardScaler → X_scaled**
+* **k = 7** (silhouette ≈ 0.222)
+* **k = 4** (silhouette ≈ 0.202)
+* **k = 10** (silhouette ≈ 0.199)
 
-This ensures that distance-based methods (KMeans, GMM) and density-based methods (HDBSCAN) properly capture meaningful behavioral differences rather than raw magnitude differences.
+Among these, **k = 7** offered the best compromise between behavioral detail and cluster separation. The resulting clusters were reasonably interpretable and relatively balanced in size, although some mixing of behaviors was still present due to the algorithm’s assumption of spherical and equally dense clusters.
 
----
+## **4.4 Gaussian Mixture Models (GMM)**
 
-## 4.3 Dimensionality Reduction with PCA
+We then tested Gaussian Mixture Models, which provide soft assignments and can theoretically adapt to more flexible cluster shapes. Silhouette scores suggested that **k = 2** delivered the best result (≈ 0.245). However, this was misleading.
 
-PCA was used for visualization and to support density-based clustering:
+The underlying behavioral distributions are highly skewed, heavy-tailed, and vary greatly in density. These characteristics violate GMM’s Gaussian assumptions. As a result, although the model numerically achieved a good silhouette score, the resulting clusters were too broad and lacked behavioral meaning. They failed to differentiate between distinct patterns of engagement and rating behavior.
 
-- **PCA-2** explained ~47% of the variance → useful for visual inspection.
-- **PCA-5** explained ~69% of the variance → used as input for HDBSCAN for improved performance and stability.
+For this reason, despite promising initial metrics, **GMM was rejected**.
 
----
+## **4.5 HDBSCAN: Density-Based Clustering**
 
-## 4.4 KMeans Clustering (k = 2–10)
+Given the limitations of KMeans and GMM, we turned to HDBSCAN, a density-based algorithm capable of identifying clusters of arbitrary shape and distinguishing dense groups from sparse noise.
 
-### **Metrics Evaluated**
-- **Inertia (SSE)** — Elbow curve (not very clear in this dataset).
-- **Silhouette Score** — Primary metric for model selection.
+A grid search was conducted using various combinations of `min_cluster_size` (2000, 4000, 8000) and `min_samples` (10, 30, 50). Each configuration was evaluated based on:
 
-### **Key Results**
-- Best silhouette values:
-  - **k = 7 → ~0.222**
-  - **k = 4 → ~0.202**
-  - **k = 10 → ~0.199**
+* number of clusters
+* silhouette score (computed only on non-noise points)
+* proportion of noise
+* size of largest and smallest clusters
 
-**k = 7** was chosen as the best KMeans solution because:
-- It provides a good balance between granularity and separation.
-- Cluster profiles are interpretable.
-- No cluster is too small or dominated by noise.
+The most effective setting was:
 
----
+* **min_cluster_size = 8000**
+* **min_samples = 30**
 
-## 4.5 Gaussian Mixture Models (GMM)
+This configuration produced **6 well-defined clusters**, with a silhouette score of ~0.275 and a noise level of ~20%. The noise points represented users whose behavior does not fit any consistent pattern—an important advantage of HDBSCAN over KMeans, which forces every user into a cluster even when their behavior is ambiguous.
 
-GMM was evaluated for 2–10 components using silhouette.
+The behavioral structure uncovered by HDBSCAN was significantly clearer and more coherent than what was achievable with KMeans or GMM.
 
-### **Results**
-- Highest silhouette at **k = 2 (≈ 0.245)**.
-- However, Gaussian assumptions fail due to:
-  - heavy-tailed distributions,  
-  - extreme rating consistency (std ≈ 0),  
-  - irregular density structure,  
-  - large variance differences across features.
+## **4.6 Cluster Profiling and Behavioral Interpretation**
 
-### **Conclusion**
-Although GMM achieves a high silhouette at k=2, it produces broad, non-interpretable clusters and does not capture the true behavioral structure.  
-**GMM was discarded.**
+For all models, cluster profiles were analyzed through feature means and variances, enabling us to characterize each user segment.
 
----
+HDBSCAN in particular produced clusters that aligned strongly with real behavioral patterns. Examples include:
 
-## 4.6 HDBSCAN Clustering
+* short-lived, harsh reviewers
+* long-term users with consistent positivity
+* moderately active users with stable habits
+* dormant users resurfacing after long inactivity
+* niche-content consumers vs. mainstream viewers
 
-HDBSCAN is well suited for:
-- non-spherical clusters  
-- highly imbalanced densities  
-- natural behavioral patterns  
-- presence of noise/outliers  
+Compared to KMeans, the HDBSCAN clusters displayed sharper boundaries, clearer identities, and higher internal consistency.
 
-### **Grid Search**
-Parameters tested:
-- **min_cluster_size**: 2000, 4000, 8000  
-- **min_samples**: 10, 30, 50
+## **4.7 Overall Model Comparison**
 
-### **Evaluation Metrics**
-- number of clusters  
-- percentage of noise  
-- silhouette score (on non-noise points)  
-- largest/smallest cluster size  
+The methods evaluated differ significantly in their assumptions and strengths:
 
-### **Best Configuration**
-- **min_cluster_size = 8000**  
-- **min_samples = 30**  
-- silhouette ≈ **0.275**  
-- noise ≈ **20.8%**  
-- clusters identified: **6**
+| Method      | Strengths                                                        | Weaknesses                                                   | Outcome             |
+| ----------- | ---------------------------------------------------------------- | ------------------------------------------------------------ | ------------------- |
+| **KMeans**  | Simple, stable, interpretable                                    | Assumes equal-density spherical clusters; forced assignments | Good baseline (k=7) |
+| **GMM**     | Probabilistic assignments, flexible                              | Wrong assumptions for this dataset; clusters not meaningful  | Discarded           |
+| **HDBSCAN** | Captures natural density; identifies noise; highly interpretable | Requires parameter tuning; leaves some users unclustered     | **Best model**      |
 
-### **Interpretation**
-HDBSCAN produced:
-- highly compact and well-separated clusters  
-- meaningful behavioral profiles  
-- correct identification of ~20% noise (unclusterable users)
+HDBSCAN was ultimately chosen because it offered the clearest segmentation, the best silhouette among meaningful models, and the most coherent behavioral grouping.
 
-HDBSCAN clearly outperforms KMeans and GMM in structural clarity, interpretability, and density alignment.
+# **Final Conclusion**
 
----
+Although KMeans provided a workable segmentation and GMM showed promising metrics without meaningful structure, **HDBSCAN emerged as the most powerful and insightful model**. It successfully captured the natural density structure of user behavior, created clear and interpretable groups, and avoided forcing irregular users into inappropriate clusters.
 
-## 4.7 Cluster Profiling
-
-Each cluster was analyzed using:
-- feature means  
-- feature standard deviations  
-- size of each cluster  
-- rating behavior  
-- engagement levels  
-- recency  
-- movie popularity preference  
-
-### **Main Findings**
-HDBSCAN revealed natural, interpretable user types, including:
-
-- ultra-short-lived harsh reviewers  
-- niche-oriented dormant users  
-- neutral short-term users  
-- moderately active long-term positive users  
-- highly engaged, diverse long-term users  
-
-KMeans produced similar groups but with lower consistency and more mixing of behaviors.
-
----
-
-## 4.8 Model Comparison Summary
-
-| Method | Advantages | Limitations | Outcome |
-|--------|------------|-------------|---------|
-| **KMeans** | Simple, stable, interpretable; decent silhouette | Assumes spherical clusters; forces all users into a segment | Good (k=7) |
-| **GMM** | Soft clustering, probabilistic | Assumes Gaussian shapes; fails on heavy-tailed behavioral data | Discarded |
-| **HDBSCAN** | Captures natural density structure; identifies noise; best silhouette; highly interpretable | Does not assign all users; parameter sensitivity | **Best performing model** |
-
-### **Final Recommendation**
-**HDBSCAN provides the most meaningful, stable, and behaviorally interpretable clustering solution.**  
-It identifies clear behavioral groups while correctly excluding irregular or low-information users as noise.
+This makes HDBSCAN the recommended solution for understanding user behavior in this dataset.
