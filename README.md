@@ -4,7 +4,6 @@ This project investigates viewer behaviour on a movie platform using the viewer_
 The README provides an overview of the project workflow, the rationale behind each design choice, and the analytical methods used to uncover audience behaviour from the underlying data.
 
 ## Methods
-
 ### Data Preparation
 Transforming the raw SQLite database into a unified analytical dataset was an essential first step before any modelling could take place. The original database (viewer_interactions.db) consisted of five tables: viewer_ratings, movies, user_statistics, movie_statistics, and data_dictionary. Although the schema was structurally well-defined, the tables contained inconsistencies, missing values, and logical errors. Thus, the cleaning workflow focused on restoring data integrity, ensuring semantic consistency, and producing a dataset appropriate for machine learning.
 #### ***1 Data Cleaning and Pre-Processing***
@@ -32,10 +31,10 @@ Multicollinearity was also widespread. Given that these statistics were derived 
 Boxplots and distribution plots were generated to evaluate the spread of each feature. Many variables, such as user activity or movie rating periods, contained extreme outliers. Instead of removing these values outright, which could distort the real usage behaviour, this problem is addressed by using scaling techniques later on.
 #### ***3 Pairwise Feature Relationships***
 Finally, relationships between features were inspected. Different plots showed no strong or direct trends. This suggested that patterns in the dataset may be better explored through clustering techniques.
+
 All these observations directly influenced modelling strategy used later in the project.
 
 ## Experimental Design 
-
 ### Linear Regression
 
 Started with the classic: **Linear Regression**.  
